@@ -40,6 +40,7 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
   const originalHome = process.env.HOME;
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
   let execCalls = 0;
+  let resolveCalls = 0;
 
   process.env.HOME = tempHome;
   process.env.CLAUDE_CONFIG_DIR = customConfigDir;
@@ -48,7 +49,10 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
   utimesSync(binaryPath, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
 
   try {
-    _setResolveClaudeBinaryForTests(() => ({ path: binaryPath, mtimeMs: binaryMtimeMs }));
+    _setResolveClaudeBinaryForTests(() => {
+      resolveCalls += 1;
+      return { path: binaryPath, mtimeMs: binaryMtimeMs };
+    });
     _setExecFileImplForTests(async () => {
       execCalls += 1;
       return { stdout: '2.2.0-beta.1+abc123 (Claude Code)\n' };
@@ -57,11 +61,17 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
     const first = await getClaudeCodeVersion();
     assert.equal(first, '2.2.0-beta.1+abc123');
     assert.equal(execCalls, 1);
+    assert.equal(resolveCalls, 1);
 
     const cachePath = path.join(customConfigDir, 'plugins', 'claude-hud', '.claude-code-version-cache.json');
     assert.equal(existsSync(cachePath), true);
 
     _resetVersionCache();
+    resolveCalls = 0;
+    _setResolveClaudeBinaryForTests(() => {
+      resolveCalls += 1;
+      throw new Error('should not rescan PATH when disk cache is valid');
+    });
     _setExecFileImplForTests(async () => {
       throw new Error('should not shell out when disk cache is valid');
     });
@@ -69,6 +79,7 @@ test('getClaudeCodeVersion persists cache across process resets under CLAUDE_CON
     const second = await getClaudeCodeVersion();
     assert.equal(second, '2.2.0-beta.1+abc123');
     assert.equal(execCalls, 1);
+    assert.equal(resolveCalls, 0);
   } finally {
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
@@ -108,6 +119,37 @@ test('getClaudeCodeVersion refreshes when the Claude binary mtime changes', asyn
     const second = await getClaudeCodeVersion();
     assert.equal(second, '2.2.0-beta.1');
     assert.equal(execCalls, 2);
+  } finally {
+    restoreEnvVar('HOME', originalHome);
+    restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);
+    await rm(tempHome, { recursive: true, force: true });
+  }
+});
+
+test('getClaudeCodeVersion executes the resolved binary path', async () => {
+  const tempHome = await mkdtemp(path.join(tmpdir(), 'claude-hud-version-windows-'));
+  const customConfigDir = path.join(tempHome, '.claude-alt');
+  const binaryPath = path.join(tempHome, 'claude.cmd');
+  const originalHome = process.env.HOME;
+  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const execCalls = [];
+
+  process.env.HOME = tempHome;
+  process.env.CLAUDE_CONFIG_DIR = customConfigDir;
+  await writeFile(binaryPath, '@echo off\r\n', 'utf8');
+  const binaryMtimeMs = 1710000000000;
+  utimesSync(binaryPath, binaryMtimeMs / 1000, binaryMtimeMs / 1000);
+
+  try {
+    _setResolveClaudeBinaryForTests(() => ({ path: binaryPath, mtimeMs: binaryMtimeMs }));
+    _setExecFileImplForTests(async (file) => {
+      execCalls.push(file);
+      return { stdout: '2.1.81 (Claude Code)\n' };
+    });
+
+    const version = await getClaudeCodeVersion();
+    assert.equal(version, '2.1.81');
+    assert.deepEqual(execCalls, [binaryPath]);
   } finally {
     restoreEnvVar('HOME', originalHome);
     restoreEnvVar('CLAUDE_CONFIG_DIR', originalConfigDir);

@@ -46,6 +46,23 @@ function getBinaryCacheKey(binaryInfo: ClaudeBinaryInfo): string {
   return `${binaryInfo.path}:${binaryInfo.mtimeMs}`;
 }
 
+function statResolvedBinary(binaryPath: string): ClaudeBinaryInfo | null {
+  try {
+    const realPath = fs.realpathSync(binaryPath);
+    const stat = fs.statSync(realPath);
+    if (!stat.isFile()) {
+      return null;
+    }
+
+    return {
+      path: realPath,
+      mtimeMs: stat.mtimeMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readVersionCache(homeDir: string): VersionCacheFile | null {
   try {
     const cachePath = getVersionCachePath(homeDir);
@@ -137,15 +154,9 @@ function resolveClaudeBinaryFromPath(): ClaudeBinaryInfo | null {
         continue;
       }
 
-      try {
-        const realPath = fs.realpathSync(candidatePath);
-        const stat = fs.statSync(realPath);
-        return {
-          path: realPath,
-          mtimeMs: stat.mtimeMs,
-        };
-      } catch {
-        continue;
+      const binaryInfo = statResolvedBinary(candidatePath);
+      if (binaryInfo) {
+        return binaryInfo;
       }
     }
   }
@@ -164,6 +175,27 @@ export function _parseClaudeCodeVersion(output: string): string | undefined {
 }
 
 export async function getClaudeCodeVersion(): Promise<string | undefined> {
+  const homeDir = os.homedir();
+  const diskCache = readVersionCache(homeDir);
+  if (diskCache) {
+    const cachedBinaryInfo = statResolvedBinary(diskCache.binaryPath);
+    if (
+      cachedBinaryInfo
+      && cachedBinaryInfo.path === diskCache.binaryPath
+      && cachedBinaryInfo.mtimeMs === diskCache.binaryMtimeMs
+    ) {
+      const cachedKey = getBinaryCacheKey(cachedBinaryInfo);
+      if (hasResolved && cachedBinaryKey === cachedKey) {
+        return cachedVersion;
+      }
+
+      cachedBinaryKey = cachedKey;
+      cachedVersion = diskCache.version ?? undefined;
+      hasResolved = true;
+      return cachedVersion;
+    }
+  }
+
   const binaryInfo = resolveClaudeBinaryImpl();
   if (!binaryInfo) {
     return undefined;
@@ -174,21 +206,8 @@ export async function getClaudeCodeVersion(): Promise<string | undefined> {
     return cachedVersion;
   }
 
-  const homeDir = os.homedir();
-  const diskCache = readVersionCache(homeDir);
-  if (
-    diskCache
-    && diskCache.binaryPath === binaryInfo.path
-    && diskCache.binaryMtimeMs === binaryInfo.mtimeMs
-  ) {
-    cachedBinaryKey = binaryKey;
-    cachedVersion = diskCache.version ?? undefined;
-    hasResolved = true;
-    return cachedVersion;
-  }
-
   try {
-    const { stdout } = await execFileImpl('claude', ['--version'], {
+    const { stdout } = await execFileImpl(binaryInfo.path, ['--version'], {
       timeout: 2000,
       encoding: 'utf8',
     });
