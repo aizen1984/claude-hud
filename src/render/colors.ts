@@ -108,6 +108,18 @@ export function custom(text: string, colors?: Partial<HudColorOverrides>): strin
   return withOverride(text, colors?.custom, CLAUDE_ORANGE);
 }
 
+export function skill(text: string, colors?: Partial<HudColorOverrides>): string {
+  return withOverride(text, colors?.skill, CLAUDE_ORANGE);
+}
+
+export function editedFile(text: string, colors?: Partial<HudColorOverrides>): string {
+  return withOverride(text, colors?.editedFile, YELLOW);
+}
+
+export function agentModel(text: string, colors?: Partial<HudColorOverrides>): string {
+  return withOverride(text, colors?.agentModel, CYAN);
+}
+
 export function warning(text: string, colors?: Partial<HudColorOverrides>): string {
   return colorize(text, resolveAnsi(colors?.warning, YELLOW));
 }

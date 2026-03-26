@@ -19,7 +19,15 @@ export interface StdinData {
     // Native percentage fields (Claude Code v2.1.6+)
     used_percentage?: number | null;
     remaining_percentage?: number | null;
+    // Cumulative session tokens (Claude Code v2.1.6+)
+    total_input_tokens?: number | null;
+    total_output_tokens?: number | null;
   };
+  cost?: {
+    total_cost_usd?: number | null;
+    total_duration_ms?: number | null;
+    total_api_duration_ms?: number | null;
+  } | null;
   rate_limits?: {
     five_hour?: {
       used_percentage?: number | null;
@@ -36,6 +44,7 @@ export interface ToolEntry {
   id: string;
   name: string;
   target?: string;
+  isSkill?: boolean;
   status: 'running' | 'completed' | 'error';
   startTime: Date;
   endTime?: Date;
@@ -81,6 +90,8 @@ export interface TranscriptData {
   todos: TodoItem[];
   sessionStart?: Date;
   sessionName?: string;
+  lastUserMessageTime?: Date;
+  prevUserMessageTime?: Date;
 }
 
 export interface RenderContext {

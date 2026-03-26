@@ -33,6 +33,9 @@ export interface HudColorOverrides {
   gitBranch: HudColorValue;
   label: HudColorValue;
   custom: HudColorValue;
+  skill: HudColorValue;
+  editedFile: HudColorValue;
+  agentModel: HudColorValue;
 }
 
 export const DEFAULT_ELEMENT_ORDER: HudElement[] = [
@@ -76,6 +79,7 @@ export interface HudConfig {
     showSessionName: boolean;
     showClaudeCodeVersion: boolean;
     showMemoryUsage: boolean;
+    showCost: boolean;
     autocompactBuffer: AutocompactBufferMode;
     usageThreshold: number;
     sevenDayThreshold: number;
@@ -113,6 +117,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     showSessionName: false,
     showClaudeCodeVersion: false,
     showMemoryUsage: false,
+    showCost: true,
     autocompactBuffer: 'enabled',
     usageThreshold: 0,
     sevenDayThreshold: 80,
@@ -131,6 +136,9 @@ export const DEFAULT_CONFIG: HudConfig = {
     gitBranch: 'cyan',
     label: 'dim',
     custom: 208,
+    skill: 208,
+    editedFile: 'yellow',
+    agentModel: 'cyan',
   },
 };
 
@@ -316,6 +324,9 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     showMemoryUsage: typeof migrated.display?.showMemoryUsage === 'boolean'
       ? migrated.display.showMemoryUsage
       : DEFAULT_CONFIG.display.showMemoryUsage,
+    showCost: typeof migrated.display?.showCost === 'boolean'
+      ? migrated.display.showCost
+      : DEFAULT_CONFIG.display.showCost,
     autocompactBuffer: validateAutocompactBuffer(migrated.display?.autocompactBuffer)
       ? migrated.display.autocompactBuffer
       : DEFAULT_CONFIG.display.autocompactBuffer,
@@ -361,6 +372,15 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     custom: validateColorValue(migrated.colors?.custom)
       ? migrated.colors.custom
       : DEFAULT_CONFIG.colors.custom,
+    skill: validateColorValue(migrated.colors?.skill)
+      ? migrated.colors.skill
+      : DEFAULT_CONFIG.colors.skill,
+    editedFile: validateColorValue(migrated.colors?.editedFile)
+      ? migrated.colors.editedFile
+      : DEFAULT_CONFIG.colors.editedFile,
+    agentModel: validateColorValue(migrated.colors?.agentModel)
+      ? migrated.colors.agentModel
+      : DEFAULT_CONFIG.colors.agentModel,
   };
 
   return { lineLayout, showSeparators, pathLevels, elementOrder, gitStatus, display, colors };

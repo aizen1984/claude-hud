@@ -46,6 +46,8 @@ interface SerializedTranscriptData {
   todos: TodoItem[];
   sessionStart?: string;
   sessionName?: string;
+  lastUserMessageTime?: string;
+  prevUserMessageTime?: string;
 }
 
 interface TranscriptCacheFile {
@@ -91,6 +93,8 @@ function serializeTranscriptData(data: TranscriptData): SerializedTranscriptData
     todos: data.todos.map((todo) => ({ ...todo })),
     sessionStart: data.sessionStart?.toISOString(),
     sessionName: data.sessionName,
+    lastUserMessageTime: data.lastUserMessageTime?.toISOString(),
+    prevUserMessageTime: data.prevUserMessageTime?.toISOString(),
   };
 }
 
@@ -109,6 +113,8 @@ function deserializeTranscriptData(data: SerializedTranscriptData): TranscriptDa
     todos: data.todos.map((todo) => ({ ...todo })),
     sessionStart: data.sessionStart ? new Date(data.sessionStart) : undefined,
     sessionName: data.sessionName,
+    lastUserMessageTime: data.lastUserMessageTime ? new Date(data.lastUserMessageTime) : undefined,
+    prevUserMessageTime: data.prevUserMessageTime ? new Date(data.prevUserMessageTime) : undefined,
   };
 }
 
@@ -173,6 +179,8 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   const taskIdToIndex = new Map<string, number>();
   let latestSlug: string | undefined;
   let customTitle: string | undefined;
+  let lastUserMessageTime: Date | undefined;
+  let prevUserMessageTime: Date | undefined;
 
   let parsedCleanly = false;
 
@@ -193,6 +201,10 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
         } else if (typeof entry.slug === 'string') {
           latestSlug = entry.slug;
         }
+        if ((entry.type === 'human' || entry.type === 'user') && entry.timestamp) {
+          prevUserMessageTime = lastUserMessageTime;
+          lastUserMessageTime = new Date(entry.timestamp);
+        }
         processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result);
       } catch {
         // Skip malformed lines
@@ -208,6 +220,8 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   result.agents = Array.from(agentMap.values()).slice(-10);
   result.todos = latestTodos;
   result.sessionName = customTitle ?? latestSlug;
+  result.lastUserMessageTime = lastUserMessageTime;
+  result.prevUserMessageTime = prevUserMessageTime;
   if (parsedCleanly) {
     writeTranscriptCache(transcriptPath, transcriptState, result);
   }
@@ -242,11 +256,12 @@ function processEntry(
         id: block.id,
         name: block.name,
         target: extractTarget(block.name, block.input),
+        isSkill: block.name === 'Skill',
         status: 'running',
         startTime: timestamp,
       };
 
-      if (block.name === 'Task') {
+      if (block.name === 'Task' || block.name === 'Agent') {
         const input = block.input as Record<string, unknown>;
         const agentEntry: AgentEntry = {
           id: block.id,
@@ -330,7 +345,9 @@ function extractTarget(toolName: string, input?: Record<string, unknown>): strin
       return input.pattern as string;
     case 'Bash':
       const cmd = input.command as string;
-      return cmd?.slice(0, 30) + (cmd?.length > 30 ? '...' : '');
+      return cmd?.slice(0, 50) + (cmd?.length > 50 ? '...' : '');
+    case 'Skill':
+      return input.skill as string;
   }
   return undefined;
 }
