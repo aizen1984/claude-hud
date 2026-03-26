@@ -3,6 +3,7 @@ import { isLimitReached } from '../types.js';
 import { getContextPercent, getBufferedPercent, getModelName, getProviderLabel, getTotalTokens } from '../stdin.js';
 import { getOutputSpeed } from '../speed-tracker.js';
 import { coloredBar, critical, git as gitColor, gitBranch as gitBranchColor, label, model as modelColor, project as projectColor, red, getContextColor, getQuotaColor, quotaBar, custom as customColor, RESET } from './colors.js';
+import { formatCost } from './lines/cost.js';
 import { getAdaptiveBarWidth } from '../utils/terminal.js';
 
 const DEBUG = process.env.DEBUG?.includes('claude-hud') || process.env.DEBUG === '*';
@@ -194,6 +195,11 @@ export function renderSessionLine(ctx: RenderContext): string {
         }
       }
     }
+  }
+
+  // Cost display
+  if (display?.showCost !== false && ctx.stdin.cost && typeof ctx.stdin.cost.total_cost_usd === 'number') {
+    parts.push(label(formatCost(ctx.stdin.cost.total_cost_usd), colors));
   }
 
   // Session duration
