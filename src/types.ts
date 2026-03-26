@@ -58,6 +58,7 @@ export interface AgentEntry {
   status: 'running' | 'completed';
   startTime: Date;
   endTime?: Date;
+  editedFiles?: string[];
 }
 
 export interface TodoItem {

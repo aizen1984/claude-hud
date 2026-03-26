@@ -19,14 +19,25 @@ const MERGE_TOOLS: Record<string, string> = {
 };
 
 function toolIcon(name: string): string {
-  return TOOL_ICONS[name] ?? '🔧';
+  // Trailing space prevents emoji overlap in terminals with inconsistent emoji width (e.g. IntelliJ IDEA)
+  return (TOOL_ICONS[name] ?? '🔧') + ' ';
 }
 
 export function renderToolsLine(ctx: RenderContext): string | null {
   const { tools } = ctx.transcript;
   const colors = ctx.config?.colors;
+  const turnStart = ctx.transcript.lastUserMessageTime;
 
   if (tools.length === 0) {
+    return null;
+  }
+
+  // Only show tools from the current turn (after latest user message)
+  const currentTurnTools = turnStart
+    ? tools.filter((t) => t.startTime >= turnStart)
+    : tools;
+
+  if (currentTurnTools.length === 0) {
     return null;
   }
 
@@ -34,8 +45,8 @@ export function renderToolsLine(ctx: RenderContext): string | null {
 
   // Exclude Agent/Task from tools display (shown in agents-line)
   const AGENT_NAMES = new Set(['Agent', 'Task']);
-  const realTools = tools.filter((t) => !AGENT_NAMES.has(t.name) && !t.isSkill);
-  const skillTools = tools.filter((t) => t.isSkill);
+  const realTools = currentTurnTools.filter((t) => !AGENT_NAMES.has(t.name) && !t.isSkill);
+  const skillTools = currentTurnTools.filter((t) => t.isSkill);
 
   // 0. Skill calls first (highest priority)
   const runningSkills = skillTools.filter((t) => t.status === 'running');
@@ -115,7 +126,7 @@ export function renderToolsLine(ctx: RenderContext): string | null {
     const shown = editedFiles.slice(0, MAX_FILES);
     const extra = editedFiles.length - MAX_FILES;
     const fileList = shown.join(', ') + (extra > 0 ? ` +${extra}` : '');
-    parts.push(`✏️ ${yellow(fileList)}`);
+    parts.push(`✏️  ${yellow(fileList)}`);
   }
 
   if (parts.length === 0) {

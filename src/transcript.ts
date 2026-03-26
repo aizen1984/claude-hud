@@ -23,6 +23,7 @@ interface ContentBlock {
   input?: Record<string, unknown>;
   tool_use_id?: string;
   is_error?: boolean;
+  content?: string | Array<{ text?: string }>;
 }
 
 interface TranscriptFileState {
@@ -204,6 +205,9 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
         if ((entry.type === 'human' || entry.type === 'user') && entry.timestamp) {
           prevUserMessageTime = lastUserMessageTime;
           lastUserMessageTime = new Date(entry.timestamp);
+          // Clear todos at each new user turn so only current turn's todos are shown
+          latestTodos.length = 0;
+          taskIdToIndex.clear();
         }
         processEntry(entry, toolMap, agentMap, taskIdToIndex, latestTodos, result);
       } catch {
@@ -222,6 +226,10 @@ export async function parseTranscript(transcriptPath: string): Promise<Transcrip
   result.sessionName = customTitle ?? latestSlug;
   result.lastUserMessageTime = lastUserMessageTime;
   result.prevUserMessageTime = prevUserMessageTime;
+
+  // Enrich agents with edited files from sub-agent transcripts
+  enrichAgentEditedFiles(transcriptPath, result.agents);
+
   if (parsedCleanly) {
     writeTranscriptCache(transcriptPath, transcriptState, result);
   }
@@ -326,6 +334,18 @@ function processEntry(
       if (agent) {
         agent.status = 'completed';
         agent.endTime = timestamp;
+
+        // Extract agentId from tool_result content for sub-transcript lookup
+        const resultContent = block.content;
+        const resultText = typeof resultContent === 'string'
+          ? resultContent
+          : (Array.isArray(resultContent)
+            ? resultContent.map((c: any) => typeof c === 'string' ? c : c?.text ?? '').join('')
+            : '');
+        const agentIdMatch = resultText.match(/agentId:\s*([a-z0-9]+)/);
+        if (agentIdMatch) {
+          (agent as any)._agentId = agentIdMatch[1];
+        }
       }
     }
   }
@@ -392,4 +412,86 @@ function normalizeTaskStatus(status: unknown): TodoItem['status'] | null {
     default:
       return null;
   }
+}
+
+const EDIT_TOOL_NAMES = new Set(['Edit', 'Write']);
+
+/**
+ * Scan sub-agent transcript files to extract edited file names.
+ * Path convention: {transcriptDir}/{sessionId}/subagents/agent-{agentId}.jsonl
+ * The main transcript is at {transcriptDir}/{sessionId}.jsonl
+ */
+function enrichAgentEditedFiles(transcriptPath: string, agents: AgentEntry[]): void {
+  // Derive subagents directory from transcript path
+  // e.g. /.../{sessionId}.jsonl -> /.../{sessionId}/subagents/
+  const transcriptDir = path.dirname(transcriptPath);
+  const sessionId = path.basename(transcriptPath, '.jsonl');
+  const subagentsDir = path.join(transcriptDir, sessionId, 'subagents');
+
+  try {
+    if (!fs.existsSync(subagentsDir)) return;
+  } catch {
+    return;
+  }
+
+  for (const agent of agents) {
+    const agentId = (agent as any)._agentId as string | undefined;
+    if (!agentId) continue;
+
+    try {
+      const subTranscript = path.join(subagentsDir, `agent-${agentId}.jsonl`);
+      if (!fs.existsSync(subTranscript)) continue;
+
+      const editedFiles = scanSubTranscriptForEdits(subTranscript);
+      if (editedFiles.length > 0) {
+        agent.editedFiles = editedFiles;
+      }
+    } catch {
+      // Non-fatal: skip this agent
+    }
+
+    // Clean up internal field
+    delete (agent as any)._agentId;
+  }
+}
+
+/**
+ * Synchronously scan a sub-agent transcript for Edit/Write tool calls.
+ * Only extracts file basenames, reads line-by-line to minimize memory.
+ */
+function scanSubTranscriptForEdits(filePath: string): string[] {
+  const seen = new Set<string>();
+  const files: string[] = [];
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n');
+
+    for (const line of lines) {
+      if (!line.includes('"Edit"') && !line.includes('"Write"')) continue;
+
+      try {
+        const entry = JSON.parse(line);
+        const blocks = entry?.message?.content;
+        if (!Array.isArray(blocks)) continue;
+
+        for (const block of blocks) {
+          if (block?.type !== 'tool_use' || !EDIT_TOOL_NAMES.has(block.name)) continue;
+          const filePath = block.input?.file_path as string;
+          if (!filePath) continue;
+          const basename = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+          if (!seen.has(basename)) {
+            seen.add(basename);
+            files.push(basename);
+          }
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  return files;
 }

@@ -1,15 +1,21 @@
 import type { RenderContext, AgentEntry } from '../types.js';
-import { yellow, green, magenta, dim, agentModel as agentModelColor } from './colors.js';
+import { yellow, green, magenta, dim, agentModel as agentModelColor, editedFile as editedFileColor } from './colors.js';
 
 const LONG_RUNNING_THRESHOLD_MS = 180_000; // 3 minutes
 
 export function renderAgentsLine(ctx: RenderContext): string | null {
   const { agents } = ctx.transcript;
   const colors = ctx.config?.colors;
+  const turnStart = ctx.transcript.lastUserMessageTime;
 
-  const runningAgents = agents.filter((a) => a.status === 'running');
+  // Only show agents from the current turn
+  const currentAgents = turnStart
+    ? agents.filter((a) => a.startTime >= turnStart)
+    : agents;
+
+  const runningAgents = currentAgents.filter((a) => a.status === 'running');
   const now = Date.now();
-  const recentCompleted = agents
+  const recentCompleted = currentAgents
     .filter((a) => a.status === 'completed' && a.endTime && (now - a.endTime.getTime()) < 30_000)
     .slice(-3);
 
@@ -43,7 +49,21 @@ function formatAgent(agent: AgentEntry, colors?: RenderContext['config']['colors
 
   const elapsed = formatElapsed(agent);
 
-  return `${icon} 🤖 ${meta ? `${meta} ` : ''}${desc}  ${elapsed}`;
+  // Edited files from sub-agent transcript
+  const filesDisplay = formatEditedFiles(agent);
+
+  return `${icon} 🤖  ${meta ? `${meta} ` : ''}${desc}  ${elapsed}${filesDisplay}`;
+}
+
+function formatEditedFiles(agent: AgentEntry): string {
+  const files = agent.editedFiles;
+  if (!files || files.length === 0) return '';
+
+  const MAX_FILES = 3;
+  const shown = files.slice(0, MAX_FILES);
+  const extra = files.length - MAX_FILES;
+  const list = shown.join(', ') + (extra > 0 ? ` +${extra}` : '');
+  return `  ✏️  ${editedFileColor(list)}`;
 }
 
 function truncateDesc(desc: string, maxLen: number = 60): string {
